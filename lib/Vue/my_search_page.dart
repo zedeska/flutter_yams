@@ -2,7 +2,13 @@ import 'package:flutter/material.dart';
 import '../Modele/api.dart';
 import 'my_app_bar.dart';
 
-enum SearchType { tracks, albums }
+enum SearchType {
+  tracks,
+  albums;
+
+  @override
+  String toString() => name;
+}
 
 class MySearchPage extends StatefulWidget {
   final String? initialQuery;
@@ -13,10 +19,10 @@ class MySearchPage extends StatefulWidget {
 }
 
 class _MySearchPageState extends State<MySearchPage> {
-
   final Api api = Api();
   Map<String, dynamic>? searchResults;
   bool isLoading = false;
+  bool isDownloading = false;
 
   SearchType selectedType = SearchType.tracks;
   List selectedResults = [];
@@ -50,6 +56,7 @@ class _MySearchPageState extends State<MySearchPage> {
       final results = await api.search(query);
       setState(() {
         searchResults = results;
+        selectedResults = searchResults?[selectedType.toString()] ?? [];
       });
     } catch (e) {
       debugPrint('Error performing search: $e');
@@ -67,11 +74,44 @@ class _MySearchPageState extends State<MySearchPage> {
     }
   }
 
+  void downloadTrack(String title, String trackId, String platforme) async {
+    setState(() {
+      isDownloading = true;
+    });
+    try {
+      final file = await api.downloadTrack(title, trackId, platforme);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Track downloaded to: ${file.path}')));
+      }
+    } catch (e) {
+      debugPrint('Error downloading track: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error downloading track: $e')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          isDownloading = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: MyAppBar(onSearch: performSearch),
-      body: _buildBody(context),
+      body: Column(
+        children: [
+          if (isDownloading) const LinearProgressIndicator(),
+          Expanded(child: _buildBody(context)),
+        ],
+      ),
     );
   }
 
@@ -103,35 +143,37 @@ class _MySearchPageState extends State<MySearchPage> {
               ),
             ],
             selected: <SearchType>{selectedType},
-            onSelectionChanged: (Set<SearchType> newSelection) { 
-              setState(() { 
+            onSelectionChanged: (Set<SearchType> newSelection) {
+              setState(() {
                 selectedType = newSelection.first;
+                selectedResults = searchResults?[selectedType.toString()] ?? [];
               });
             },
           ),
 
           const SizedBox(height: 10),
 
-          Column(
-            children: [
-              Text('${searchResults?[selectedType.toString()]} :'),
-              Row(
-                children: [
-                  searchResults?[selectedType.toString()].value is List
-                      ? Expanded(
-                          child: Column(
-                            children: [
-                              for (var item in entry.value)
-                                Text('- ${item['title']}'),
-                            ],
+          selectedResults.isNotEmpty
+              ? Column(
+                  children: [
+                    for (var item in selectedResults)
+                      Card(
+                        child: ListTile(
+                          leading: Icon(
+                            selectedType == SearchType.tracks
+                                ? Icons.music_note
+                                : Icons.album,
                           ),
-                        )
-                      : Text('${entry.value}'),
+                          title: Text("${item["title"]}"),
+                          trailing: IconButton(
+                            onPressed: () => downloadTrack(item["title"], item["id"].toString(), item["platform"]),
+                            icon: const Icon(Icons.download),
+                          ),
+                        ),
+                      ),
                   ],
-                ),
-              ],
-            ),
-          ),
+                )
+              : const Text('No results found'),
         ],
       ),
     );
